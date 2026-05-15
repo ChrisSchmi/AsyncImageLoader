@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Vue 3 Secure Image Loader - Shimmer Animation</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f0f0f0; padding: 20px; }
+        
+        .gallery { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); 
+            gap: 20px; 
+            margin-top: 60px;
+        }
+
+        /* Container für das Bild */
+        .secure-img-container { 
+            position: relative;
+            height: 250px; 
+            background: #e0e0e0; 
+            border-radius: 10px; 
+            overflow: hidden; 
+        }
+
+        /* Die Ladeanimation (Shimmer-Effekt) */
+        .secure-img-container::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            z-index: 1;
+        }
+
+        /* Wenn das Bild geladen ist, wird der Shimmer-Effekt ausgeblendet */
+        .secure-img-container.is-loaded::before {
+            display: none;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .secure-img { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            opacity: 0; 
+            transition: opacity 0.5s ease-in-out; 
+            z-index: 2;
+        }
+
+        /* Bild einblenden */
+        .secure-img.loaded { 
+            opacity: 1; 
+        }
+
+        .status-bar { position: fixed; top: 0; left: 0; width: 100%; background: #333; color: #fff; padding: 10px; z-index: 100; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div class="status-bar">
+        Status: {{ loading ? 'Initialisiere...' : 'Bereit' }} | Token: {{ memoryToken ? 'Vorhanden' : 'Fehlt' }}
+    </div>
+
+    <div v-if="loading" style="margin-top: 60px;">
+        <h2>Warte auf Authentifizierung...</h2>
+    </div>
+    
+    <div v-else class="gallery">
+        <div v-for="n in 150" :key="n" 
+             class="secure-img-container" 
+             :id="'container-' + n">
+            <img 
+                class="secure-img"
+                :data-src="'https://fillmurray.lucidinternets.com/' + (300 + n) + '/' + (300 + n)"
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                @load="onImageRendered($event, n)"
+            >
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+createApp({
+    data() {
+        return {
+            loading: true,
+            memoryToken: null,
+            observer: null
+        }
+    },
+    methods: {
+        async silentRefresh() {
+            console.log("1. Silent Refresh wird simuliert...");
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    this.memoryToken = "simulated_token_" + Date.now();
+                    resolve();
+                }, 1000);
+            });
+        },
+
+        // Diese Methode wird gerufen, sobald das Bild im DOM fertig gezeichnet wurde
+        onImageRendered(event, index) {
+            const img = event.target;
+            // Wir prüfen, ob es das echte Bild ist (nicht der base64 Placeholder)
+            if (img.src.startsWith('blob:') || img.src.startsWith('https:')) {
+                img.classList.add('loaded');
+                // Container-Animation stoppen
+                const container = document.getElementById('container-' + index);
+                if (container) container.classList.add('is-loaded');
+            }
+        },
+
+        async loadSecureImage(imgElement) {
+            const apiUrl = imgElement.getAttribute('data-src');
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${this.memoryToken}` }
+                });
+
+                if (!response.ok) throw new Error();
+
+                const blob = await response.blob();
+                const objectURL = URL.createObjectURL(blob);
+                imgElement.src = objectURL;
+            } catch (err) {
+                console.log("CORS/Fetch Fehler -> Fallback für Demo bei:", apiUrl);
+                imgElement.src = apiUrl;
+            }
+        },
+
+        initObserver() {
+            this.observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        this.loadSecureImage(entry.target);
+                        this.observer.unobserve(entry.target);
+                    }
+                });
+            }, { rootMargin: '100px' });
+
+            const images = document.querySelectorAll('img[data-src]');
+            images.forEach(img => this.observer.observe(img));
+        }
+    },
+    async mounted() {
+        await this.silentRefresh();
+        this.loading = false;
+        
+        this.$nextTick(() => {
+            this.initObserver();
+        });
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
